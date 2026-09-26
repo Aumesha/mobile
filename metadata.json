@@ -1,0 +1,6 @@
+{
+  "name": "DhvaniFlow",
+  "description": "Fast Kannada & English Video Audio Remover, Voice Dubbing & Synchronized Bottom-to-Top Auto-Scrolling Subtitle Video Studio for Mobile & Desktop",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

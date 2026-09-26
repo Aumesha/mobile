@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">DhvaniFlow</string>
+    <string name="studio_title">ಧ್ವನಿಫ್ಲೋ ಸ್ಟುಡಿಯೋ • DhvaniFlow Studio</string>
+    <string name="studio_subtitle">ವೇಗದ ವಿಡಿಯೋ ಮ್ಯೂಟ್, ವಾಯ್ಸ್ ಡಬ್ಬಿಂಗ್ ಮತ್ತು ಲೈವ್ ಟೆಕ್ಸ್ಟ್ ಸ್ವೈಪ್ ಸ್ಟುಡಿಯೋ</string>
+    <string name="tab_mute">1. ಧ್ವನಿ ತೆಗೆಯಿರಿ</string>
+    <string name="tab_dub">2. ಧ್ವನಿ ಸೇರಿಸಿ</string>
+    <string name="tab_scroll">3. ಪಠ್ಯ ಸ್ವೈಪ್</string>
+    <string name="tab_github">4. GitHub &amp; Desktop</string>
+    <string name="upload_video_btn">ವಿಡಿಯೋ ಅಪ್ಲೋಡ್ ಮಾಡಿ (Upload Video)</string>
+    <string name="generate_sample_video_btn">ತಕ್ಷಣದ ಡೆಮೊ ವಿಡಿಯೋ ರಚಿಸಿ (Instant Sample Video)</string>
+    <string name="remove_audio_now_btn">ಧ್ವನಿ ತೆಗೆದು ಕೇವಲ ವಿಡಿಯೋ ಮಾಡಿ (Mute Now)</string>
+    <string name="download_to_phone_btn">ಡೌನ್‌ಲೋಡ್ ಫೋಲ್ಡರ್‌ಗೆ ಸೇವ್ ಮಾಡಿ (Save to Downloads)</string>
+    <string name="send_to_next_step_btn">ಮುಂದಿನ ಹಂತಕ್ಕೆ ಕಳುಹಿಸಿ (Send to Next Menu)</string>
+    <string name="record_voice_btn">ಮೈಕ್ ಮೂಲಕ ಧ್ವನಿ ರೆಕಾರ್ಡ್ ಮಾಡಿ (Record Voice)</string>
+    <string name="upload_audio_btn">ಆಡಿಯೋ ಫೈಲ್ ಆಯ್ಕೆಮಾಡಿ (Upload Audio)</string>
+    <string name="generate_tts_voice_btn">ಕನ್ನಡ/English ಧ್ವನಿ ರಚಿಸಿ (Synthesize Voice)</string>
+    <string name="merge_audio_video_btn">ವಿಡಿಯೋಗೆ ಹೊಸ ಧ್ವನಿ ಸೇರಿಸಿ (Merge Voice &amp; Video)</string>
+    <string name="auto_transcribe_btn">ಧ್ವನಿಯನ್ನು ಪಠ್ಯಕ್ಕೆ ಪರಿವರ್ತಿಸಿ (Auto Voice-to-Text)</string>
+    <string name="render_scroll_video_btn">ಸ್ವೈಪ್ ಪಠ್ಯದ ವಿಡಿಯೋ ರಚಿಸಿ ಮತ್ತು ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ</string>
+    <string name="security_warning_prototype">Security Warning: I have included your API keys in the generated APK file for this prototype. Please be aware that Android APKs can be easily decompiled, and these keys can be extracted by anyone who has access to the file. Do not share this APK file publicly or with unauthorized individuals to prevent potential misuse.</string>
+</resources>
