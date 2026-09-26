@@ -1,7 +1,8 @@
 package com.example.ui.components
 
-import android.media.MediaPlayer
-import android.widget.VideoView
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -11,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,20 +58,24 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.example.media.TimedScriptLine
+import com.example.media.VideoProcessingEngine
 import com.example.ui.theme.AmberGold
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldReady
 import com.example.ui.theme.StudioDeepBg
 import com.example.ui.theme.StudioSurfaceVariant
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
@@ -88,32 +94,90 @@ fun SynchronizedScrollVideoPlayer(
 ) {
     var isPlaying by remember(videoFile) { mutableStateOf(true) }
     var currentPosMs by remember(videoFile) { mutableLongStateOf(0L) }
-    var durationMs by remember(videoFile) { mutableLongStateOf(6000L) }
-    var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
-    var mediaPlayerRef by remember { mutableStateOf<MediaPlayer?>(null) }
+    val durationMs = remember(videoFile, timedLines) {
+        val lastCueEnd = timedLines.lastOrNull()?.endMs ?: 6000L
+        max(6000L, lastCueEnd)
+    }
     var isMutedToggle by remember(videoFile, hasAudioTrack) { mutableStateOf(!hasAudioTrack) }
 
     // 60 FPS playback clock for smooth bottom-to-top voice-synchronized scrolling
-    LaunchedEffect(videoFile, isPlaying) {
-        while (isPlaying) {
-            val vv = videoViewRef
-            if (vv != null && vv.isPlaying) {
-                currentPosMs = vv.currentPosition.toLong().coerceAtLeast(0L)
-                val dur = vv.duration.toLong()
-                if (dur > 0L) durationMs = dur
-            } else if (videoFile != null) {
-                currentPosMs = (currentPosMs + 32L) % max(1000L, durationMs)
-            }
+    LaunchedEffect(videoFile, isPlaying, durationMs) {
+        var lastTick = System.currentTimeMillis()
+        while (isActive && isPlaying) {
             delay(16L)
+            val now = System.currentTimeMillis()
+            val delta = (now - lastTick).coerceIn(8L, 64L)
+            lastTick = now
+            currentPosMs = (currentPosMs + delta) % durationMs
         }
     }
 
-    DisposableEffect(videoFile) {
-        onDispose {
+    // Pure AudioTrack PCM Voice Output (Zero MediaCodec / Zero MPEG4Writer errors)
+    LaunchedEffect(videoFile, isPlaying, hasAudioTrack, isMutedToggle) {
+        if (!isPlaying || !hasAudioTrack || isMutedToggle || videoFile == null) {
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.IO) {
+            var track: AudioTrack? = null
             try {
-                videoViewRef?.stopPlayback()
+                val wavFile = VideoProcessingEngine.getCompanionAudioFile(videoFile)
+                if (wavFile.exists() && wavFile.length() > 44L) {
+                    val allBytes = wavFile.readBytes()
+                    val pcmData = allBytes.copyOfRange(44, allBytes.size)
+                    val sampleRate = 22050
+                    val minBuf = AudioTrack.getMinBufferSize(
+                        sampleRate,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT
+                    ).coerceAtLeast(4096)
+
+                    track = AudioTrack.Builder()
+                        .setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                .build()
+                        )
+                        .setAudioFormat(
+                            AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(minBuf)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                        .build()
+
+                    track.play()
+                    var offset = 0
+                    val chunk = 2048
+                    while (isActive && isPlaying && !isMutedToggle) {
+                        if (offset >= pcmData.size) {
+                            offset = 0
+                        }
+                        val toWrite = minOf(chunk, pcmData.size - offset)
+                        track.write(pcmData, offset, toWrite)
+                        offset += toWrite
+                    }
+                }
             } catch (_: Exception) {
+            } finally {
+                try {
+                    track?.stop()
+                } catch (_: Exception) {
+                }
+                try {
+                    track?.release()
+                } catch (_: Exception) {
+                }
             }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            isPlaying = false
         }
     }
 
@@ -143,51 +207,55 @@ fun SynchronizedScrollVideoPlayer(
                 .background(Color(0xFF070B14)),
             contentAlignment = Alignment.Center
         ) {
-            if (videoFile != null && videoFile.exists()) {
-                AndroidView(
-                    factory = { ctx ->
-                        VideoView(ctx).apply {
-                            videoViewRef = this
-                            setVideoPath(videoFile.absolutePath)
-                            setOnPreparedListener { mp ->
-                                mediaPlayerRef = mp
-                                mp.isLooping = true
-                                val dur = mp.duration.toLong()
-                                if (dur > 0L) durationMs = dur
-                                val vol = if (!hasAudioTrack || isMutedToggle) 0f else 1f
-                                mp.setVolume(vol, vol)
-                                if (isPlaying) {
-                                    start()
-                                }
-                            }
-                            setOnCompletionListener {
-                                currentPosMs = 0L
-                                if (isPlaying) start()
-                            }
-                        }
-                    },
-                    update = { vv ->
-                        videoViewRef = vv
-                        val tagPath = vv.tag as? String
-                        if (tagPath != videoFile.absolutePath) {
-                            vv.tag = videoFile.absolutePath
-                            vv.setVideoPath(videoFile.absolutePath)
-                        }
-                        try {
-                            val vol = if (!hasAudioTrack || isMutedToggle) 0f else 1f
-                            mediaPlayerRef?.setVolume(vol, vol)
-                        } catch (_: Exception) {
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                // Fallback animated studio canvas if no file yet
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            listOf(Color(0xFF0B1325), Color(0xFF172544), Color(0xFF0A0F1D))
+            // 60 FPS Cinema Video Frame Canvas
+            val progressFraction = (currentPosMs.toFloat() / max(1L, durationMs).toFloat()).coerceIn(0f, 1f)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF0C1324),
+                            Color(0xFF162444),
+                            Color(0xFF0F172A)
                         )
+                    )
+                )
+
+                val cx = size.width / 2f
+                val cy = if (showScrollingTextOverlay) size.height * 0.30f else size.height * 0.48f
+                val pulse = sin(progressFraction * Math.PI.toFloat() * 6f) * 16f
+
+                drawCircle(
+                    color = ElectricCyan.copy(alpha = 0.25f),
+                    radius = 78f + pulse,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 3f)
+                )
+                drawCircle(
+                    color = AmberGold.copy(alpha = 0.20f),
+                    radius = 116f - pulse * 0.6f,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 2.5f)
+                )
+
+                // Voice-reactive cinema equalizer bars
+                val barCount = 18
+                val totalW = size.width * 0.68f
+                val startX = (size.width - totalW) / 2f
+                val slotW = totalW / barCount
+                val activeAudio = hasAudioTrack && !isMutedToggle && isPlaying
+
+                for (b in 0 until barCount) {
+                    val anim = if (activeAudio) {
+                        abs(sin(wavePhase + b * 0.55f + progressFraction * 12f))
+                    } else {
+                        0.12f
+                    }
+                    val bh = 10f + anim * 58f
+                    drawRoundRect(
+                        color = if (b % 2 == 0) AmberGold else ElectricCyan,
+                        topLeft = Offset(startX + b * slotW + 3f, cy - bh / 2f),
+                        size = Size(slotW - 6f, bh),
+                        cornerRadius = CornerRadius(6f, 6f)
                     )
                 }
             }
@@ -207,7 +275,12 @@ fun SynchronizedScrollVideoPlayer(
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
                         if (hasAudioTrack && !isMutedToggle) EmeraldReady else AmberGold
-                    )
+                    ),
+                    modifier = Modifier.clickable {
+                        if (hasAudioTrack) {
+                            isMutedToggle = !isMutedToggle
+                        }
+                    }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -271,7 +344,6 @@ fun SynchronizedScrollVideoPlayer(
                 val cueDur = max(1L, activeCue.endMs - activeCue.startMs).toFloat()
                 val intraFraction = ((currentPosMs - activeCue.startMs).toFloat() / cueDur).coerceIn(0f, 1f)
 
-                // Continuous upward scroll position driven directly by the voice timeline
                 val continuousVoiceScroll = activeIdx.toFloat() + intraFraction
                 val stepHeightDp = 58f * scrollSpeedMultiplier
 
@@ -291,8 +363,6 @@ fun SynchronizedScrollVideoPlayer(
                     contentAlignment = Alignment.Center
                 ) {
                     timedLines.forEachIndexed { index, cue ->
-                        // Positive offset -> below center (entering from bottom)
-                        // Negative offset -> above center (scrolling upward to top)
                         val relOffset = index.toFloat() - continuousVoiceScroll
                         val yOffsetDp = (relOffset * stepHeightDp) + 22f
 
@@ -333,7 +403,6 @@ fun SynchronizedScrollVideoPlayer(
                                     )
                                     if (isCurrent && isPlaying) {
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        // Mini live voice energy bar beneath the active spoken sentence
                                         Canvas(
                                             modifier = Modifier
                                                 .width(96.dp)
@@ -371,22 +440,7 @@ fun SynchronizedScrollVideoPlayer(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = {
-                    val vv = videoViewRef
-                    if (isPlaying) {
-                        try {
-                            vv?.pause()
-                        } catch (_: Exception) {
-                        }
-                        isPlaying = false
-                    } else {
-                        try {
-                            vv?.start()
-                        } catch (_: Exception) {
-                        }
-                        isPlaying = true
-                    }
-                },
+                onClick = { isPlaying = !isPlaying },
                 modifier = Modifier
                     .size(48.dp)
                     .background(AmberGold.copy(alpha = 0.18f), CircleShape)
@@ -411,10 +465,6 @@ fun SynchronizedScrollVideoPlayer(
                 value = currentPosMs.toFloat().coerceIn(0f, max(1000L, durationMs).toFloat()),
                 onValueChange = { newValue ->
                     currentPosMs = newValue.toLong()
-                    try {
-                        videoViewRef?.seekTo(newValue.toInt())
-                    } catch (_: Exception) {
-                    }
                 },
                 valueRange = 0f..max(1000L, durationMs).toFloat(),
                 colors = SliderDefaults.colors(
@@ -437,12 +487,7 @@ fun SynchronizedScrollVideoPlayer(
             IconButton(
                 onClick = {
                     currentPosMs = 0L
-                    try {
-                        videoViewRef?.seekTo(0)
-                        videoViewRef?.start()
-                        isPlaying = true
-                    } catch (_: Exception) {
-                    }
+                    isPlaying = true
                 },
                 modifier = Modifier
                     .size(48.dp)
